@@ -78,6 +78,15 @@ class FakeWorksheet:
             self.rows.append([])
         self.rows[row_number - 1] = [str(v) for v in values[0]]
 
+    def update_cell(self, row: int, col: int, value: Any) -> None:
+        """gspread.Worksheet.update_cell(row, col, value)相当。1セルのみを書き換える。"""
+        while len(self.rows) < row:
+            self.rows.append([])
+        target_row = self.rows[row - 1]
+        while len(target_row) < col:
+            target_row.append("")
+        target_row[col - 1] = str(value)
+
 
 class FakeSpreadsheet:
     def __init__(self, title: str = "Fake Spreadsheet"):

@@ -1,0 +1,183 @@
+# Google Sheets 書き込み方針(ユーザー承認済み、FORMULA READ ONLY調査結果に基づく)。
+#
+# whitelist方式: 各タブの mode と allowed_columns がこのファイルに明示された
+# タブ・列にしか書き込めない(deny-by-default)。ここに無いタブは
+# sheets/adapter.py が UnknownTabError で拒否する(READ ONLY扱いにすらしない=
+# 存在を前提にしない)。
+#
+# mode:
+#   read_only       : 一切書き込まない(Adapterは常にReadOnlyTabErrorを送出)
+#   write_whitelist : allowed_columns に列挙された列のみ、key_columns で
+#                     既存行を特定してupsert(セル単位の部分書き込みのみ。
+#                     行全体の置き換えは行わない=数式列を巻き込まない)
+#   append_only     : 既存行の更新は一切せず、新規行の追加のみ許可する
+#
+# key_columns: 既存レコードを一意に特定するための列(このタブに実在する
+#   ヘッダー名で指定する)。race_id + account の重複判定にも使う。
+#
+# allowed_columns に無い列へは(既存の値であっても数式であっても)絶対に書かない。
+# 数式列(Race Ledgerの Profit/ROI/Hit、Tickets の Return/Profit、Coverage の
+# 進捗（日本語）等)は意図的に allowed_columns から除外することで保護する
+# (blacklistではなくwhitelistで守る)。
+#
+# header_row_index は config/sheet_tab_layout.yaml を正とする(重複管理しない)。
+
+keirin:
+  tabs:
+    "Race Log":
+      mode: write_whitelist
+      key_columns: ["Race ID"]
+      allowed_columns:
+        - "Race ID"
+        - "Date"
+        - "Venue"
+        - "R"
+        - "Class"
+        - "Cutoff JST"
+        - "Lock JST"
+        - "Validation"
+        - "Version"
+        - "Lines"
+        - "Scenario"
+        - "Grade"
+        - "Forced"
+        - "Selective"
+        - "1st"
+        - "2nd"
+        - "3rd"
+        - "4th"
+        - "Result"
+        - "Result URL"
+        - "Notes"
+        - "Entry URL"
+
+    "Coverage":
+      mode: write_whitelist
+      key_columns: ["Race ID"]
+      allowed_columns:
+        - "Race ID"
+        - "開催日"
+        - "会場"
+        - "R"
+        - "クラス・開催区分"
+        - "締切（JST）"
+        - "内部ステータス"
+        - "事前評価"
+        - "FORCED買い目（1,000円基準）"
+        - "FORCED投資額"
+        - "SELECT判定・買い目"
+        - "SELECT投資額"
+        - "ライン・並び"
+        - "事前シナリオ・根拠"
+        - "予想固定時刻"
+        - "情報取得時刻"
+        - "出走・根拠URL"
+        - "公式起点"
+        - "結果"
+        - "払戻"
+        - "収支"
+        - "ROI"
+        - "検証状態"
+        - "見送り・未処理理由"
+      # 「進捗（日本語）」はARRAYFORMULAのため意図的にallowed_columnsへ含めない。
+      # Sheet側の数式が内部ステータス等から自動的に日本語表示させる想定。
+
+    "Race Ledger":
+      mode: write_whitelist
+      key_columns: ["Race ID", "Account / 口座"]
+      allowed_columns:
+        - "Race ID"
+        - "Date / 開催日"
+        - "Venue / 会場"
+        - "R"
+        - "Class / クラス"
+        - "Cutoff JST / 締切"
+        - "Account / 口座"
+        - "Validation / 検証"
+        - "Grade / 評価"
+        - "Lines / ライン"
+        - "Scenario / 想定展開"
+        - "Bet Type / 券種"
+        - "Selections / 買い目・金額・取得オッズ"
+        - "Stake / 投資額"
+        - "Finish / 結果"
+        - "Status / 状態"
+        - "Lock JST / 固定時刻"
+        - "Info JST / 情報取得時刻"
+        - "Source URL / 根拠URL"
+        - "Result URL / 結果URL"
+        - "Review / 反省・理由"
+        - "Settled # / 確定順"
+        - "Block / ブロック"
+        - "Odds Band / オッズ帯"
+        - "Line Type / ライン型"
+        - "Version"
+        - "Structure Tags / 構造タグ"
+        - "Main Scenario / 本線"
+        - "Reverse Scenario / 逆転"
+        - "Collapse Scenario / 本線崩壊"
+        - "Chosen Scenario / 採用"
+        - "Rejected Reasons / 不採用理由"
+        - "Low Grade Reason / 低評価理由"
+        - "Best of Weak / 最もマシ"
+        - "Max Weakness / 最大弱点"
+        - "Odds/Popularity / 人気帯"
+        - "Pre-Race Quality / 品質状態"
+        - "Fingerprint / 重複監査"
+        - "Module Adopted JST / 導入時刻"
+      # Profit/利益・ROI・Hit/的中は数式列のため意図的にallowed_columnsへ含めない。
+
+    "Tickets":
+      mode: write_whitelist
+      key_columns: ["Race ID", "Account", "Ticket ID"]
+      allowed_columns:
+        - "Ticket ID"
+        - "Race ID"
+        - "Account"
+        - "Bet Type"
+        - "Selection"
+        - "Virtual Stake"
+        - "Lock Odds"
+        - "Min Odds"
+        - "Locked"
+        - "Outcome"
+        - "Source URL"
+        - "Version"
+        - "Reason"
+      # Return・Profitは数式列のため意図的にallowed_columnsへ含めない。
+
+    "変更履歴":
+      mode: append_only
+      allowed_columns:
+        - "Time JST / 時刻"
+        - "Version / 版"
+        - "Change / 変更種別"
+        - "Detail / 内容"
+        - "Reason / 理由"
+        - "Block Impact / ブロック影響"
+
+    # --- 完全READ ONLY(この方針変更時もwhitelistではなくmode自体で保護する) ---
+    "FORCED-ALL": {mode: read_only}
+    "SELECT-B+": {mode: read_only}
+    "Summary": {mode: read_only}
+    "日別": {mode: read_only}
+
+    # --- Account設計との整合を確認してから対応。現段階ではREAD ONLY ---
+    "FLEX-ALL": {mode: read_only}
+    "FLEX-SELECT": {mode: read_only}
+
+    # --- その他の集計・監査タブ。原則READ ONLY ---
+    "券種別": {mode: read_only}
+    "ランク別": {mode: read_only}
+    "会場別": {mode: read_only}
+    "オッズ帯別": {mode: read_only}
+    "ライン型別": {mode: read_only}
+    "最大DD": {mode: read_only}
+    "構造タグ別": {mode: read_only}
+    "クラス別": {mode: read_only}
+    "Coverage miss": {mode: read_only}
+    "Quality miss": {mode: read_only}
+    "結果検証11項目": {mode: read_only}
+    "Dashboard": {mode: read_only}
+    "Rules": {mode: read_only}
+    "Sources": {mode: read_only}
