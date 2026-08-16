@@ -73,7 +73,8 @@ cp .env.example .env
 | `GOOGLE_SHEET_ID_KEIRIN` | 競輪用 Google Sheet ID |
 
 認証情報が未設定の場合、Sheets連携層は自動的に **dry-run モード**（ログ出力のみ、実書き込みなし）
-で動作します。
+で動作します。`python -m rin_garden sheets-check` で、認証情報・Sheet IDの設定状況と
+（接続できる場合は）既存タブの構成を読み取り専用で確認できます。処理を止めることはありません。
 
 ### テスト方法
 
@@ -91,7 +92,28 @@ python -m rin_garden pre --sport jra --date today
 python -m rin_garden final --sport jra --race-id XXXXX
 python -m rin_garden settle --sport jra --date today
 python -m rin_garden audit --date today
+python -m rin_garden sheets-check
 ```
+
+### 競輪データの取り込み
+
+現時点で稼働中の実行環境からは競輪の公式データソースへネットワークで到達できない
+(egressポリシーによりブロックされる)ため、`get_schedule()`等のライブ取得系メソッドは
+`DATA_INCOMPLETE`を返すダミーのままです。代わりに、ユーザーが正規の一次情報源から
+取得したデータをJSONファイルとして取り込む経路を用意しています。
+
+```python
+from rin_garden.collectors.keirin.collector import KeirinCollector
+
+collector = KeirinCollector()
+result = collector.load_race_card_from_file("path/to/race_card.json")
+```
+
+JSONの形式は `config/keirin.yaml` の `race_fields` に対応します
+(`tests/fixtures/keirin_race_card_sample.json` にサンプル構造があります)。
+Identityフィールド(`sport/date/venue/race_number/event_id/scheduled_start`)が
+欠けているファイルは取り込みを拒否し、出走者ごとのフィールド欠落は
+`DATA_INCOMPLETE`/`ESTIMATED`として明示します(推測で埋めません)。
 
 ## PRE-FIX
 
@@ -108,18 +130,38 @@ market_odds / expected_value` を保持し、一度保存すると変更でき�
 ## NO POST-HOC
 
 結果取得後にPRE/FINALを新規作成・有利な方向へ改変することをコードレベルで禁止する
-最重要ルールです。`scheduled_start` と操作時刻を比較する pre-write validation により
-強制されます。詳細は `rin_garden/core/locks.py` と `tests/test_locks.py`。
+最重要ルールです。`scheduled_start` と操作時刻を比較する pre-write validation に加え、
+`race_master.status` が `RESULT_LOCKED/SETTLED/AUDITED` に進んでいる場合は時刻計算に
+依存せず無条件で拒否する多重防御も備えています。詳細は `rin_garden/core/locks.py`、
+`rin_garden/core/pre_fix.py`、`rin_garden/core/final_lock.py` と `tests/test_locks.py`、
+`tests/test_audit_finalize.py`。Google Sheetsへの書き込み(`sheets/writer.py`)でも
+結果確定後のPRE書き込みは同様に拒否されます。
 
 ## GARDEN-6
 
 6人の独立分析担当が、それぞれの専門領域から独立して分析し、最後に凜が統合してBUY/WAIT/SKIPを
-決定します。人格定義は `agents/` 配下、統合ロジックは `rin_garden/analysis/garden6.py` を
-参照してください。
+決定します。人格定義は `agents/` 配下、`rin_garden/analysis/members.py` の
+`Garden6Member` Interfaceが同一の `RaceSnapshot` を6担当全員へ渡して独立した
+`MemberFinding` を得るところまでを担い、最終統合は `rin_garden/analysis/garden6.py` の
+`integrate()`(凜)が担当します。まだLLM接続はしておらず、各担当は構造上のスタブです。
+
+## Settlement / Audit の状態遷移
+
+```text
+SCHEDULED -> PRE_FIXED -> FINAL_LOCKED -> RESULT_LOCKED -> SETTLED -> AUDITED
+```
+
+`AUDITED` はCoverage(PRE/FINAL/Result/Settlementが揃っているか)を確認した上での
+最終確定です(`rin_garden/audit/finalize.py`)。PRE/FINAL/Result/Settlementの内容は
+一切書き換えません。
 
 ## 現状のステータス
 
-初回構築フェーズでは、安全で壊れにくいローカル基盤（Race Master / Lock機構 / Sheets抽象化 /
-Settlement / Coverage / CLI骨格 / テスト）を優先しています。各競技の本格的なデータ取得・
-本格的なGARDEN-6分析ロジックは今後の拡張対象です。詳細は各モジュール内のTODOコメントを
+Race Master / Lock機構(PRE-FIX・FINAL-LOCK・NO POST-HOC) / Settlement / Coverage /
+Audit finalize / CLI骨格 / GARDEN-6 Interface に加え、Google Sheetsは読み取り専用調査
+(`sheets/inspector.py`)とMapping層(`sheets/mapping.py`)による安全な書き込みまで
+実装済みです(認証情報が無い環境ではdry-runで動作を確認できます)。競輪のみ、正規の
+一次情報をJSONファイルとして取り込む経路(`collectors/keirin/snapshot.py`)を実装済み
+です。JRA/NAR/BOATのライブ取得、GARDEN-6の実LLM分析、Google Sheetsの実接続検証
+(認証情報未提供のため未検証)は今後の拡張対象です。詳細は各モジュール内のコメントを
 参照してください。

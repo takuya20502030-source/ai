@@ -67,6 +67,18 @@ class PreFixService:
             )
             raise
 
+        if race_master.status in (RaceStatus.RESULT_LOCKED, RaceStatus.SETTLED, RaceStatus.AUDITED):
+            # scheduled_startの時計比較に依存しない多重防御: 結果が既に判明している
+            # レースへのPRE新規作成は、時刻がどうであれ無条件で拒否する。
+            exc = PostHocBlockedError(
+                f"race_id={race_master.race_id} already has a result (status={race_master.status}); "
+                "PRE-FIX cannot be created after the fact"
+            )
+            self.audit_logger.log(
+                OP_POST_HOC_BLOCKED, race_master.sport, race_master.race_id, "REJECTED", "pre_fix.create", str(exc)
+            )
+            raise exc
+
         if race_master.scheduled_start is None:
             raise ValueError("race_master.scheduled_start is required to enforce PRE-FIX timing")
 

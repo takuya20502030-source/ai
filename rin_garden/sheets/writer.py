@@ -6,6 +6,10 @@ settle_race() / update_daily_summary()
 書き込み前に必ずRace Identity(date/sport/venue/race_number/race_id/event_id)を
 検証し、矛盾があれば書き込みを拒否する。既存PREセルへの結果後上書きも禁止する。
 dry-runモード(認証情報未設定時)では実書き込みを行わず、ログのみ残す。
+
+既存タブがある場合は`sheets/inspector.py`で読み取り専用調査を行い、
+`sheets/mapping.py`のMapping層を通して実際の列構成に合わせて書き込む
+(既存の列を削除・並び替え・追加はしない)。
 """
 
 from __future__ import annotations
@@ -13,9 +17,11 @@ from __future__ import annotations
 from typing import Any
 
 from rin_garden.core.identity import IdentityMismatchError, verify_identity
-from rin_garden.core.logging import AuditLogger, OP_IDENTITY_MISMATCH, OP_WRITE_FAILED
+from rin_garden.core.logging import AuditLogger, OP_DATA_INCOMPLETE, OP_IDENTITY_MISMATCH, OP_WRITE_FAILED
 from rin_garden.core.race_master import RaceMaster, RaceStatus
 from rin_garden.sheets.client import SheetsClient
+from rin_garden.sheets.inspector import inspect_tab
+from rin_garden.sheets.mapping import build_mapping
 from rin_garden.sheets.schemas import (
     DAILY_SUMMARY_HEADERS,
     DAILY_SUMMARY_SHEET,
@@ -33,28 +39,69 @@ from rin_garden.sheets.schemas import (
 
 
 class SheetsWriteRejectedError(Exception):
-    """Identity検証失敗・結果後PRE上書き等、書き込みを拒否した場合に送出する。"""
+    """Identity検証失敗・結果後PRE上書き・安全にupsertできない等で書き込みを拒否した場合に送出する。"""
 
 
-def _upsert_row(client: SheetsClient, sport: str, sheet_name: str, headers: list[str], key: str, row: dict[str, Any]) -> str:
-    """1行をupsertする。dry-runの場合は実書き込みを行わずステータス文字列を返す。"""
+def _upsert_row(
+    client: SheetsClient,
+    audit_logger: AuditLogger,
+    sport: str,
+    sheet_name: str,
+    canonical_headers: list[str],
+    key: str,
+    row: dict[str, Any],
+) -> str:
+    """1行をupsertする。dry-runの場合は実書き込みを行わずステータス文字列を返す。
+
+    既存タブが無ければ正規ヘッダーで新規作成する(破壊するものが無いため安全)。
+    既存タブがあれば、その実ヘッダーとcanonical_headersをMapping層で突き合わせ、
+    既存の列構成をそのまま使って書き込む。
+    """
     sheet_id = client.sheet_id_for(sport)
     if client.dry_run or not sheet_id:
         return "DRY_RUN"
 
     spreadsheet = client.open(sheet_id)
-    try:
-        worksheet = spreadsheet.worksheet(sheet_name)
-    except Exception:  # noqa: BLE001 - gspread固有例外を薄く握りつぶし、シート未作成として扱う
-        worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=len(headers))
-        worksheet.append_row(headers)
+    tab = inspect_tab(spreadsheet, sheet_name)
+    key_value = str(row.get(key, ""))
 
-    values = [str(row.get(h, "")) for h in headers]
-    key_col = headers.index(key) + 1
+    if not tab.exists:
+        worksheet = spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=max(len(canonical_headers), 1))
+        worksheet.append_row(canonical_headers)
+        worksheet.append_row([str(row.get(h, "")) for h in canonical_headers])
+        return "WRITTEN"
+
+    worksheet = spreadsheet.worksheet(sheet_name)
+    mapping = build_mapping(canonical_headers, tab.headers)
+
+    if key not in mapping.canonical_to_index:
+        audit_logger.log(
+            OP_WRITE_FAILED,
+            sport,
+            key_value,
+            "REJECTED",
+            f"sheets.write.{sheet_name}",
+            f"key field '{key}' has no matching column in existing sheet (headers={tab.headers}); refusing to upsert blindly",
+        )
+        raise SheetsWriteRejectedError(
+            f"sheet '{sheet_name}' has no '{key}' column to upsert against; refusing to write"
+        )
+
+    if mapping.unmapped_fields:
+        audit_logger.log(
+            OP_DATA_INCOMPLETE,
+            sport,
+            key_value,
+            "PARTIAL",
+            f"sheets.write.{sheet_name}",
+            f"fields not present in existing sheet, skipped without modifying sheet structure: {mapping.unmapped_fields}",
+        )
+
+    values = mapping.row_from(row)
+    key_col = mapping.canonical_to_index[key] + 1
     existing_cells = worksheet.col_values(key_col)
-    row_key_value = str(row.get(key, ""))
-    if row_key_value in existing_cells:
-        row_number = existing_cells.index(row_key_value) + 1
+    if key_value in existing_cells:
+        row_number = existing_cells.index(key_value) + 1
         worksheet.update(f"A{row_number}", [values])
     else:
         worksheet.append_row(values)
@@ -73,7 +120,7 @@ def _validate_or_raise(
 
 def save_race_master(client: SheetsClient, audit_logger: AuditLogger, race_master: RaceMaster) -> str:
     row = race_master.to_dict()
-    return _upsert_row(client, race_master.sport, RACE_MASTER_SHEET, RACE_MASTER_HEADERS, "race_id", row)
+    return _upsert_row(client, audit_logger, race_master.sport, RACE_MASTER_SHEET, RACE_MASTER_HEADERS, "race_id", row)
 
 
 def save_pre_fix(client: SheetsClient, audit_logger: AuditLogger, race_master: RaceMaster, pre: dict[str, Any]) -> str:
@@ -92,38 +139,25 @@ def save_pre_fix(client: SheetsClient, audit_logger: AuditLogger, race_master: R
             f"race_id={race_master.race_id} already has a result; PRE cannot be written after the fact"
         )
 
-    return _upsert_row(client, race_master.sport, PRE_SHEET, PRE_HEADERS, "race_id", pre)
+    return _upsert_row(client, audit_logger, race_master.sport, PRE_SHEET, PRE_HEADERS, "race_id", pre)
 
 
 def save_final_lock(client: SheetsClient, audit_logger: AuditLogger, race_master: RaceMaster, final: dict[str, Any]) -> str:
     _validate_or_raise(race_master.identity(), {"race_id": final.get("race_id")}, audit_logger, race_master.sport, race_master.race_id, "sheets.save_final_lock")
     row = {**final, "revision_count": len(final.get("revisions", []))}
-    return _upsert_row(client, race_master.sport, FINAL_SHEET, FINAL_HEADERS, "race_id", row)
+    return _upsert_row(client, audit_logger, race_master.sport, FINAL_SHEET, FINAL_HEADERS, "race_id", row)
 
 
 def save_result(client: SheetsClient, audit_logger: AuditLogger, race_master: RaceMaster, result: dict[str, Any]) -> str:
     _validate_or_raise(race_master.identity(), {"race_id": result.get("race_id")}, audit_logger, race_master.sport, race_master.race_id, "sheets.save_result")
-    return _upsert_row(client, race_master.sport, RESULT_SHEET, RESULT_HEADERS, "race_id", result)
+    return _upsert_row(client, audit_logger, race_master.sport, RESULT_SHEET, RESULT_HEADERS, "race_id", result)
 
 
 def settle_race(client: SheetsClient, audit_logger: AuditLogger, race_master: RaceMaster, settlement: dict[str, Any]) -> str:
     _validate_or_raise(race_master.identity(), {"race_id": settlement.get("race_id")}, audit_logger, race_master.sport, race_master.race_id, "sheets.settle_race")
-    return _upsert_row(client, race_master.sport, SETTLEMENT_SHEET, SETTLEMENT_HEADERS, "race_id", settlement)
+    return _upsert_row(client, audit_logger, race_master.sport, SETTLEMENT_SHEET, SETTLEMENT_HEADERS, "race_id", settlement)
 
 
 def update_daily_summary(client: SheetsClient, audit_logger: AuditLogger, sport: str, date: str, summary: dict[str, Any]) -> str:
     row = {"date": date, "sport": sport, **summary}
-    key_row = {**row}
-    key_row.setdefault("date", date)
-    sheet_id = client.sheet_id_for(sport)
-    if client.dry_run or not sheet_id:
-        return "DRY_RUN"
-    spreadsheet = client.open(sheet_id)
-    try:
-        worksheet = spreadsheet.worksheet(DAILY_SUMMARY_SHEET)
-    except Exception:  # noqa: BLE001
-        worksheet = spreadsheet.add_worksheet(title=DAILY_SUMMARY_SHEET, rows=1000, cols=len(DAILY_SUMMARY_HEADERS))
-        worksheet.append_row(DAILY_SUMMARY_HEADERS)
-    values = [str(row.get(h, "")) for h in DAILY_SUMMARY_HEADERS]
-    worksheet.append_row(values)
-    return "WRITTEN"
+    return _upsert_row(client, audit_logger, sport, DAILY_SUMMARY_SHEET, DAILY_SUMMARY_HEADERS, "date", row)

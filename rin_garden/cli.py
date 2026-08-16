@@ -5,6 +5,7 @@ python -m rin_garden pre --sport jra --date today
 python -m rin_garden final --sport jra --race-id XXXXX
 python -m rin_garden settle --sport jra --date today
 python -m rin_garden audit --date today
+python -m rin_garden sheets-check
 
 初回構築時点では、各サブコマンドは骨格(拡張可能なInterface)であり、
 実際のGARDEN-6分析・本格的なデータ取得は未実装(collectorsはDATA_INCOMPLETEを返す)。
@@ -26,6 +27,8 @@ from rin_garden.core.logging import AuditLogger
 from rin_garden.core.pre_fix import PreFixService
 from rin_garden.core.race_master import RaceMasterStore
 from rin_garden.settlement.aggregation import aggregate_day
+from rin_garden.sheets.client import SheetsClient
+from rin_garden.sheets.inspector import inspect_spreadsheet
 
 
 def _resolve_date(value: str) -> str:
@@ -123,6 +126,37 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sheets_check(args: argparse.Namespace) -> int:
+    """Google Sheets接続状態を報告する。認証情報・Sheet IDが無くても処理を止めない。
+
+    読み取り専用でタブ構成を調査するのみで、一切書き込みを行わない。
+    """
+    client = SheetsClient()
+    status = client.status()
+
+    print(f"[sheets-check] dry_run={status.dry_run}")
+    print(f"  GOOGLE_APPLICATION_CREDENTIALS={status.credentials_path or '(未設定)'} exists={status.credentials_file_exists}")
+    for sport, sheet_id in status.sheet_ids.items():
+        print(f"  GOOGLE_SHEET_ID_{sport.upper()}={sheet_id or '(未設定)'}")
+
+    missing = status.missing_items()
+    if missing:
+        print("  [不足している設定]")
+        for item in missing:
+            print(f"    - {item}")
+
+    sports = [args.sport] if args.sport else list(status.sheet_ids.keys())
+    for sport in sports:
+        inspection = inspect_spreadsheet(client, sport)
+        if not inspection.connected:
+            print(f"  [{sport}] not connected: {inspection.message}")
+            continue
+        print(f"  [{sport}] connected. tabs:")
+        for name, tab in inspection.tabs.items():
+            print(f"    - {name}: exists={tab.exists} headers={tab.headers} rows={tab.row_count} race_ids={len(tab.race_ids)}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rin_garden", description="RIN GARDEN SYSTEM CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -151,6 +185,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_audit = sub.add_parser("audit", help="Coverage/NO POST-HOC監査を行う")
     p_audit.add_argument("--date", required=True)
     p_audit.set_defaults(func=cmd_audit)
+
+    p_sheets_check = sub.add_parser("sheets-check", help="Google Sheets接続状態を読み取り専用で確認する")
+    p_sheets_check.add_argument("--sport", required=False, help="省略時は全競技分を確認する")
+    p_sheets_check.set_defaults(func=cmd_sheets_check)
 
     return parser
 

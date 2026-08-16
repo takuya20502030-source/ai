@@ -42,6 +42,7 @@ class RaceMaster:
     final_locked_at: str | None = None
     result_locked_at: str | None = None
     settled_at: str | None = None
+    audited_at: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def identity(self) -> dict[str, Any]:
@@ -71,6 +72,7 @@ class RaceMaster:
             "final_locked_at": self.final_locked_at,
             "result_locked_at": self.result_locked_at,
             "settled_at": self.settled_at,
+            "audited_at": self.audited_at,
             "extra": self.extra,
         }
 

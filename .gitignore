@@ -5,6 +5,7 @@ credentials*
 # 上記 *.json は誤って秘密情報JSONを含めないための保険。
 # 将来リポジトリに含めるべき設定JSONが必要になった場合は、ここに明示的な
 # 否定パターン(!path/to/file.json)を追加すること。無条件で全JSONを除外しない。
+!tests/fixtures/**/*.json
 
 # --- Python ---
 __pycache__/

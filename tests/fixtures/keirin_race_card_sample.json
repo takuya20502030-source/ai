@@ -1,0 +1,20 @@
+{
+  "_note": "TEST FIXTURE ONLY. Not captured from any live source. This sandboxed session's network egress policy blocks all keirin data sources (verified via 403/EGRESS_BLOCKED), so this file exists purely to exercise the file-based snapshot ingestion path and the End-to-End pipeline test with a realistic shape.",
+  "sport": "keirin",
+  "date": "2026-08-16",
+  "venue": "matsudo",
+  "race_number": 7,
+  "event_id": "fixture-evt-0001",
+  "scheduled_start": "2026-08-16T23:30:00+00:00",
+  "canonical_source": "test-fixture",
+  "source_url": null,
+  "entrants": [
+    {"number": 1, "name": "Sample Rider A", "prefecture": "千葉", "score": 105.2, "style": "先行", "recent_results": ["1", "2", "1"], "line": "A", "lineup": "1-2-3"},
+    {"number": 2, "name": "Sample Rider B", "prefecture": "静岡", "score": 98.7, "style": "追込", "recent_results": ["3", "4", "2"], "line": "A", "lineup": "1-2-3"},
+    {"number": 3, "name": "Sample Rider C", "prefecture": "福岡", "score": 101.5, "style": "捲り", "recent_results": ["2", "1", "3"], "line": "B", "lineup": "4-5"},
+    {"number": 4, "name": "Sample Rider D", "prefecture": "愛知", "score": 96.3, "style": "追込", "recent_results": ["5", "3", "4"], "line": "B", "lineup": "4-5"},
+    {"number": 5, "name": "Sample Rider E", "prefecture": "京都", "score": null, "style": "先行", "recent_results": ["4", "5", "6"], "line": "C", "lineup": "6-7"},
+    {"number": 6, "name": "Sample Rider F", "prefecture": "岐阜", "score": 92.1, "style": "追込", "recent_results": ["6", "6", "5"], "line": "C", "lineup": "6-7"},
+    {"number": 7, "name": "Sample Rider G", "prefecture": "大阪", "score": 88.4, "style": "捲り", "recent_results": ["7", "7", "7"], "line": "C", "lineup": "6-7"}
+  ]
+}
