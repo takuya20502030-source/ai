@@ -39,8 +39,22 @@ class RaceMaster:
     scheduled_start: str | None = None  # ISO8601, タイムゾーン付き
     status: str = RaceStatus.SCHEDULED
     pre_fixed_at: str | None = None
+    # final_locked_at: このレースで「いずれかのAccountが」最初にFINAL-LOCKへ到達した
+    # 時刻。レース全体の進捗を一目で見るための参考値であり、Account単位の正式な
+    # FINAL-LOCK時刻の正本ではない(2つ目以降のAccountがFINAL-LOCKされても更新されない)。
+    # Account固有の監査・NO POST-HOC判定には、必ず該当FinalLockレコード自身の
+    # `timestamp`フィールド(core/final_lock.py の FinalLock.timestamp、
+    # final_dir/.../{race_id}/{account}.json に保存される)を使うこと。
+    # 将来的にレース全体の完了状況を厳密に区別する必要が生じた場合は、
+    # first_final_locked_at / all_accounts_final_locked_at のようなフィールドへ
+    # 分割できる余地を残している(現時点では未実装)。
     final_locked_at: str | None = None
     result_locked_at: str | None = None
+    # settled_at: final_locked_at と同様、「いずれかのAccountが」最初にSETTLEDへ
+    # 到達した時刻という進捗参考値。Account固有の正式な精算時刻の正本ではない。
+    # Account単位の判定には settlement/settlement.py の Settlement.settled_at
+    # (results_dir/.../{race_id}/settlement/{account}.json に保存される)を使うこと。
+    # 将来的に first_settled_at / all_accounts_settled_at へ分割できる余地を残している。
     settled_at: str | None = None
     audited_at: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)

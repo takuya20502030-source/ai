@@ -43,7 +43,7 @@ class SpreadsheetInspection:
     message: str = ""
 
 
-def _get_worksheet(spreadsheet: Any, sheet_name: str) -> Any | None:
+def get_worksheet_or_none(spreadsheet: Any, sheet_name: str) -> Any | None:
     try:
         return spreadsheet.worksheet(sheet_name)
     except Exception:  # noqa: BLE001 - gspread固有例外を「タブが存在しない」として扱う
@@ -52,7 +52,7 @@ def _get_worksheet(spreadsheet: Any, sheet_name: str) -> Any | None:
 
 def inspect_tab(spreadsheet: Any, sheet_name: str) -> SheetTabInspection:
     """1タブを読み取り専用で調査する。書き込みは一切行わない。"""
-    worksheet = _get_worksheet(spreadsheet, sheet_name)
+    worksheet = get_worksheet_or_none(spreadsheet, sheet_name)
     if worksheet is None:
         return SheetTabInspection(exists=False)
 
@@ -123,7 +123,7 @@ def inspect_raw_tab(spreadsheet: Any, title: str, sample_rows: int = 3) -> RawTa
 
     タブが存在しなければNoneを返す。既存の値・列・行を一切変更しない。
     """
-    worksheet = _get_worksheet(spreadsheet, title)
+    worksheet = get_worksheet_or_none(spreadsheet, title)
     if worksheet is None:
         return None
 

@@ -13,19 +13,48 @@ class WorksheetNotFound(Exception):
 
 
 class FakeWorksheet:
-    def __init__(self, title: str, seed_rows: list[list[str]] | None = None):
+    def __init__(
+        self,
+        title: str,
+        seed_rows: list[list[str]] | None = None,
+        seed_formulas: dict[tuple[int, int], str] | None = None,
+    ):
         self.title = title
         self.rows: list[list[str]] = [list(r) for r in seed_rows] if seed_rows else []
+        # (row_idx, col_idx) 0始まり -> "=..." 形式の数式文字列。
+        # value_render_option='FORMULA' で取得したときだけ、対応するセルの
+        # 値をこの数式文字列に置き換える(通常のget_all_values()には影響しない)。
+        self.formulas: dict[tuple[int, int], str] = dict(seed_formulas) if seed_formulas else {}
 
     @property
     def col_count(self) -> int:
         return max((len(r) for r in self.rows), default=0)
 
+    def set_formula(self, row_idx: int, col_idx: int, formula: str) -> None:
+        self.formulas[(row_idx, col_idx)] = formula
+
     def append_row(self, values: list[Any]) -> None:
         self.rows.append([str(v) for v in values])
 
+    def clear(self) -> None:
+        self.rows = []
+        self.formulas = {}
+
     def get_all_values(self) -> list[list[str]]:
         return [list(r) for r in self.rows]
+
+    def get_values(self, value_render_option: str | None = None, **kwargs: Any) -> list[list[str]]:
+        if value_render_option != "FORMULA" or not self.formulas:
+            return self.get_all_values()
+        grid = [list(r) for r in self.rows]
+        for (row_idx, col_idx), formula in self.formulas.items():
+            while len(grid) <= row_idx:
+                grid.append([])
+            row = grid[row_idx]
+            while len(row) <= col_idx:
+                row.append("")
+            row[col_idx] = formula
+        return grid
 
     def get_all_records(self) -> list[dict[str, Any]]:
         if not self.rows:
@@ -55,8 +84,10 @@ class FakeSpreadsheet:
         self.title = title
         self._worksheets: dict[str, FakeWorksheet] = {}
 
-    def seed_worksheet(self, title: str, rows: list[list[str]]) -> FakeWorksheet:
-        ws = FakeWorksheet(title, seed_rows=rows)
+    def seed_worksheet(
+        self, title: str, rows: list[list[str]], formulas: dict[tuple[int, int], str] | None = None
+    ) -> FakeWorksheet:
+        ws = FakeWorksheet(title, seed_rows=rows, seed_formulas=formulas)
         self._worksheets[title] = ws
         return ws
 

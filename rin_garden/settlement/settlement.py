@@ -122,8 +122,11 @@ class SettlementService:
         )
         storage.write_json(path, settlement.to_dict())
 
-        # RaceMasterはレース単位のまま。最初のAccountの精算時のみSETTLEDへ遷移させる
-        # (以後の別Accountの精算ではsettled_at/statusを上書きしない=冪等)。
+        # RaceMasterはレース単位のまま。settled_atは「最初にどこかのAccountが
+        # SETTLEDへ到達した時刻」という進捗参考値であり、Account固有の正式な
+        # 精算時刻ではない(Account固有の正本は上のsettlementの settled_at
+        # フィールドを参照すること。詳細は race_master.py のコメントを参照)。
+        # 以後の別Accountの精算ではsettled_at/statusを上書きしない(=冪等)。
         if race_master.status == RaceStatus.RESULT_LOCKED:
             race_master.status = RaceStatus.SETTLED
             race_master.settled_at = now

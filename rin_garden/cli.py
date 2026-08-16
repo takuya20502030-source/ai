@@ -7,6 +7,7 @@ python -m rin_garden settle --sport jra --date today
 python -m rin_garden audit --date today
 python -m rin_garden sheets-check
 python -m rin_garden sheets-raw-inspect --sport keirin
+python -m rin_garden sheets-formula-inspect --sport keirin
 
 初回構築時点では、各サブコマンドは骨格(拡張可能なInterface)であり、
 実際のGARDEN-6分析・本格的なデータ取得は未実装(collectorsはDATA_INCOMPLETEを返す)。
@@ -20,6 +21,8 @@ from datetime import date as date_cls
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from rin_garden.audit.coverage import daily_coverage
 from rin_garden.audit.posthoc import scan_day_for_post_hoc_violations
 from rin_garden.collectors.registry import get_collector
@@ -29,7 +32,20 @@ from rin_garden.core.pre_fix import PreFixService
 from rin_garden.core.race_master import RaceMasterStore
 from rin_garden.settlement.aggregation import aggregate_day
 from rin_garden.sheets.client import SheetsClient
+from rin_garden.sheets.formula_inspector import inspect_spreadsheet_formulas
 from rin_garden.sheets.inspector import inspect_spreadsheet, inspect_spreadsheet_raw
+
+# FORMULA READ ONLY調査の既定対象タブ(ユーザー指定)。
+DEFAULT_FORMULA_INSPECT_TABS = [
+    "Race Ledger",
+    "FORCED-ALL",
+    "SELECT-B+",
+    "FLEX-ALL",
+    "FLEX-SELECT",
+    "Tickets",
+    "Coverage",
+]
+EXTRA_FORMULA_INSPECT_TABS = ["Race Log", "Summary", "日別", "変更履歴"]
 
 
 def _resolve_date(value: str) -> str:
@@ -202,6 +218,110 @@ def cmd_sheets_raw_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_header_row_index_by_tab(sport: str) -> dict[str, int]:
+    """config/sheet_tab_layout.yaml からタブごとのヘッダー行位置を読み込む。
+    ファイルが無い・該当sportが無い場合は空のdict(=自動指定なし)を返す。
+    """
+    path = PROJECT_ROOT / "config" / "sheet_tab_layout.yaml"
+    if not path.exists():
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    entries = data.get(sport, {})
+    return {title: cfg.get("header_row_index") for title, cfg in entries.items() if cfg.get("header_row_index") is not None}
+
+
+def _format_formula_report(sport: str, auth_method: str | None, result: dict[str, Any]) -> str:
+    """FORMULA READ ONLY調査結果を、コンソール表示とファイル出力の両方で
+    同一内容になるようテキストへ整形する。
+    """
+    lines: list[str] = []
+    lines.append(f"[sheets-formula-inspect] sport={sport} auth_method={auth_method} "
+                 f"spreadsheet_title={result.get('spreadsheet_title', '')!r}")
+
+    for title, tab in result["tabs"].items():
+        lines.append("")
+        lines.append(f"--- tab: {title!r} ---")
+        if tab is None:
+            lines.append("  (タブが見つかりません)")
+            continue
+
+        lines.append(f"  header_row_index: {tab.header_row_index}")
+        lines.append(f"  header_row_values: {tab.header_row_values}")
+        lines.append(f"  使用行列数: {tab.total_data_rows}行 x {tab.total_cols}列(ヘッダー行を除く)")
+        lines.append(f"  数式セル数: {tab.total_formula_cells} / 値セル数: {tab.total_value_cells}")
+        lines.append(f"  数式がある列(書き込み禁止候補): {tab.columns_with_formulas}")
+        lines.append(f"  値のみの列(書き込み候補、要再確認): {tab.value_only_columns}")
+
+        if tab.sample_formulas:
+            lines.append("  代表的な数式:")
+            for sample in tab.sample_formulas:
+                lines.append(f"    {sample['cell']}: {sample['formula']}")
+        else:
+            lines.append("  代表的な数式: (数式セルなし)")
+
+        if tab.has_any_formula:
+            lines.append("  総合判定: 数式を含む列があるため、タブ全体を書き込み禁止候補として扱うこと")
+        else:
+            lines.append("  総合判定: 数式セルは検出されなかった(値のみ)。ただし書き込み前に再確認すること")
+
+    return "\n".join(lines)
+
+
+def cmd_sheets_formula_inspect(args: argparse.Namespace) -> int:
+    """既存Google Sheetsの対象タブをFORMULA表示で読み取り専用調査する。
+
+    どのセルが数式(=一次入力ではなく派生・集計値)で、どのセルが値そのもの
+    (=一次入力候補)かを区別する。value_render_option='FORMULA'によるGET
+    (Sheets API読み取り専用)のみを使用し、update/append/clear/add_worksheet等の
+    書き込み系メソッドは一切呼ばない。
+    """
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001 - reconfigureが使えない環境でも処理は継続する
+        pass
+
+    client = SheetsClient()
+    if client.dry_run:
+        print("[sheets-formula-inspect] dry-run mode: no usable credentials configured. Nothing to inspect.")
+        return 0
+
+    sheet_id = client.sheet_id_for(args.sport)
+    if not sheet_id:
+        print(f"[sheets-formula-inspect] GOOGLE_SHEET_ID_{args.sport.upper()} is not set.")
+        return 0
+
+    tabs = list(DEFAULT_FORMULA_INSPECT_TABS)
+    if args.include_extra:
+        tabs += EXTRA_FORMULA_INSPECT_TABS
+    if args.tabs:
+        tabs = args.tabs
+
+    header_row_index_by_tab = _load_header_row_index_by_tab(args.sport)
+
+    result = inspect_spreadsheet_formulas(
+        client,
+        args.sport,
+        tab_titles=tabs,
+        header_row_index_by_tab=header_row_index_by_tab,
+        max_sample_formulas=args.sample_formulas,
+    )
+    if not result["connected"]:
+        print(f"[sheets-formula-inspect] not connected: {result['message']}")
+        return 1
+
+    report = _format_formula_report(args.sport, client.auth_method, result)
+    print(report)
+
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(report + "\n", encoding="utf-8")
+        print(f"\n[sheets-formula-inspect] report also written to: {output_path} (UTF-8)")
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rin_garden", description="RIN GARDEN SYSTEM CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -242,6 +362,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_sheets_raw_inspect.add_argument("--sport", required=True)
     p_sheets_raw_inspect.add_argument("--sample-rows", type=int, default=3, help="各タブから表示するサンプル行数")
     p_sheets_raw_inspect.set_defaults(func=cmd_sheets_raw_inspect)
+
+    p_sheets_formula_inspect = sub.add_parser(
+        "sheets-formula-inspect",
+        help="既存Google Sheetsの対象タブをFORMULA表示で読み取り専用調査する(書き込みなし)",
+    )
+    p_sheets_formula_inspect.add_argument("--sport", required=True)
+    p_sheets_formula_inspect.add_argument(
+        "--tabs", nargs="+", default=None, help="調査対象タブ名を明示指定する(省略時は既定7タブ)"
+    )
+    p_sheets_formula_inspect.add_argument(
+        "--include-extra", action="store_true", help="Race Log/Summary/日別/変更履歴も追加で調査する"
+    )
+    p_sheets_formula_inspect.add_argument("--sample-formulas", type=int, default=5, help="タブごとに表示する代表的な数式の件数")
+    p_sheets_formula_inspect.add_argument(
+        "--output", default=None, help="レポートをUTF-8テキストファイルとしても書き出すパス(Windows等の文字化け対策)"
+    )
+    p_sheets_formula_inspect.set_defaults(func=cmd_sheets_formula_inspect)
 
     return parser
 

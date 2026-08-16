@@ -164,8 +164,11 @@ class FinalLockService:
         storage.write_json(path, record)
 
         # RaceMasterはレース単位(1 race_id = 1 race)のまま、Accountごとに複製しない。
-        # 「このレースで少なくとも1つのFINAL-LOCKが確定した」という最初の時点のみ記録する
-        # (以後の別Accountの作成ではfinal_locked_at/statusを上書きしない=冪等)。
+        # final_locked_atは「このレースで最初にどこかのAccountがFINAL-LOCKされた
+        # 時刻」という進捗参考値であり、Account固有の正式なFINAL-LOCK時刻ではない
+        # (Account固有の正本は上のrecordに保存した final.timestamp を参照すること。
+        # 詳細は race_master.py の final_locked_at フィールドのコメントを参照)。
+        # 以後の別Accountの作成ではfinal_locked_at/statusを上書きしない(=冪等)。
         if race_master.final_locked_at is None:
             race_master.final_locked_at = now
             race_master.status = RaceStatus.FINAL_LOCKED
