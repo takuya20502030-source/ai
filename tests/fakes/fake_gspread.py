@@ -17,6 +17,10 @@ class FakeWorksheet:
         self.title = title
         self.rows: list[list[str]] = [list(r) for r in seed_rows] if seed_rows else []
 
+    @property
+    def col_count(self) -> int:
+        return max((len(r) for r in self.rows), default=0)
+
     def append_row(self, values: list[Any]) -> None:
         self.rows.append([str(v) for v in values])
 
@@ -47,7 +51,8 @@ class FakeWorksheet:
 
 
 class FakeSpreadsheet:
-    def __init__(self):
+    def __init__(self, title: str = "Fake Spreadsheet"):
+        self.title = title
         self._worksheets: dict[str, FakeWorksheet] = {}
 
     def seed_worksheet(self, title: str, rows: list[list[str]]) -> FakeWorksheet:
@@ -59,6 +64,9 @@ class FakeSpreadsheet:
         if name not in self._worksheets:
             raise WorksheetNotFound(name)
         return self._worksheets[name]
+
+    def worksheets(self) -> list[FakeWorksheet]:
+        return list(self._worksheets.values())
 
     def add_worksheet(self, title: str, rows: int = 1000, cols: int = 10) -> FakeWorksheet:
         ws = FakeWorksheet(title)

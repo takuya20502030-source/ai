@@ -71,7 +71,13 @@ def inspect_tab(spreadsheet: Any, sheet_name: str) -> SheetTabInspection:
 
 
 def inspect_spreadsheet(client: SheetsClient, sport: str) -> SpreadsheetInspection:
-    """指定sportのスプレッドシートを読み取り専用で調査する。
+    """指定sportのスプレッドシートを、こちらの正規タブ名(KNOWN_SHEETS)前提で
+    読み取り専用調査する。
+
+    既存の台帳が正規タブ名と異なる構成(例: 「Race Ledger」等の独自タブ名)を
+    使っている場合、そのタブはここでは検出できない(全てexists=Falseになる)。
+    タブ名を問わずスプレッドシート全体を調査したい場合は
+    `inspect_spreadsheet_raw()` を使うこと。
 
     dry-run・Sheet ID未設定の場合は接続せず、その旨をmessageに記録して返す
     (処理は停止しない)。
@@ -88,3 +94,73 @@ def inspect_spreadsheet(client: SheetsClient, sport: str) -> SpreadsheetInspecti
 
     tabs = {name: inspect_tab(spreadsheet, name) for name in KNOWN_SHEETS}
     return SpreadsheetInspection(sport=sport, connected=True, tabs=tabs, message="")
+
+
+# --- タブ名を固定しない生の読み取り専用調査(既存Sheetの実際の構成を調べる用) ---
+
+
+@dataclass
+class RawTabInspection:
+    """タブ名を問わず、実際のタブをそのまま読み取り専用で調査した結果。
+
+    全データはダンプしない(sample_rowsのみ、既定3行)。書き込みは一切行わない。
+    """
+
+    title: str
+    header_row: list[str]
+    data_row_count: int
+    sheet_col_count: int
+    sample_rows: list[list[str]] = field(default_factory=list)
+
+
+def list_all_tab_titles(spreadsheet: Any) -> list[str]:
+    """スプレッドシート内の全タブ名を、実際のタブ順のまま読み取り専用で取得する。"""
+    return [ws.title for ws in spreadsheet.worksheets()]
+
+
+def inspect_raw_tab(spreadsheet: Any, title: str, sample_rows: int = 3) -> RawTabInspection | None:
+    """タブ名を正規化・前提とせず、実際のヘッダー行・使用範囲・先頭数行のみを読む。
+
+    タブが存在しなければNoneを返す。既存の値・列・行を一切変更しない。
+    """
+    worksheet = _get_worksheet(spreadsheet, title)
+    if worksheet is None:
+        return None
+
+    all_values = worksheet.get_all_values()
+    header_row = all_values[0] if all_values else []
+    data_rows = all_values[1:] if len(all_values) > 1 else []
+
+    return RawTabInspection(
+        title=title,
+        header_row=header_row,
+        data_row_count=len(data_rows),
+        sheet_col_count=worksheet.col_count,
+        sample_rows=data_rows[:sample_rows],
+    )
+
+
+def inspect_spreadsheet_raw(client: SheetsClient, sport: str, sample_rows: int = 3) -> dict[str, Any]:
+    """タブ名を固定せず、スプレッドシート全体をそのまま読み取り専用で調査する。
+
+    戻り値: {"connected": bool, "message": str, "spreadsheet_title": str,
+             "tabs": {タブ名: RawTabInspection}}
+    """
+    sheet_id = client.sheet_id_for(sport)
+    if client.dry_run:
+        return {"connected": False, "message": "dry-run mode: no credentials configured", "tabs": {}}
+    if not sheet_id:
+        return {"connected": False, "message": f"no sheet id configured for sport={sport}", "tabs": {}}
+
+    spreadsheet = client.open(sheet_id)
+    if spreadsheet is None:
+        return {"connected": False, "message": "client.open() returned no spreadsheet", "tabs": {}}
+
+    titles = list_all_tab_titles(spreadsheet)
+    tabs = {title: inspect_raw_tab(spreadsheet, title, sample_rows=sample_rows) for title in titles}
+    return {
+        "connected": True,
+        "message": "",
+        "spreadsheet_title": getattr(spreadsheet, "title", ""),
+        "tabs": tabs,
+    }
