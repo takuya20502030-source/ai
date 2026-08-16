@@ -1,0 +1,62 @@
+# AccountPolicy定義。
+#
+# Accountはコードへ固定列挙せず、ここに追加・変更する。予測ロジック(PRE-FIX /
+# GARDEN-6)とAccount固有の資金・選別ロジックを分離するための設定ファイル。
+#
+# 各フィールドの意味(将来の選別・配分エンジン実装に備えた構造。現時点では
+# rin_garden側はこれらの値を「保持・検証」するのみで、selection_rule等の
+# 自動判定ロジックはまだ実装していない):
+#
+#   enabled            : このAccountを有効として扱うか
+#   selection_rule     : どのレースを対象とするかのルール名(例: all_races, grade_threshold)
+#   eligible_grades    : 対象とするランク(S/A/B/C/D/E)の一覧
+#   base_stake         : 通常時の購入額(円)
+#   s_grade_stake      : Sランク時の購入額(円)。無ければbase_stakeを使う
+#   skip_rule          : 見送り条件のルール名(例: never, below_threshold)
+#   allocation_rule    : 買い目・点数配分のルール名(例: fixed, flexible, copy_from:<account>)
+#   minimum_odds_rule  : 最低オッズ条件のルール名(未使用ならnull)
+
+accounts:
+  - id: FORCED-ALL
+    display_name: "FORCED-ALL"
+    enabled: true
+    selection_rule: all_races
+    eligible_grades: ["S", "A", "B", "C", "D", "E"]
+    base_stake: 1000
+    s_grade_stake: 1000
+    skip_rule: never
+    allocation_rule: fixed
+    minimum_odds_rule: null
+
+  - id: SELECT-B+
+    display_name: "SELECT-B+"
+    enabled: true
+    selection_rule: grade_threshold
+    eligible_grades: ["S", "A", "B"]
+    base_stake: 1000
+    s_grade_stake: 1000
+    skip_rule: below_threshold
+    allocation_rule: fixed
+    minimum_odds_rule: null
+
+  - id: FLEX-ALL
+    display_name: "FLEX-ALL"
+    enabled: true
+    selection_rule: all_races
+    eligible_grades: ["S", "A", "B", "C", "D", "E"]
+    base_stake: 2000
+    s_grade_stake: 3000
+    skip_rule: never
+    allocation_rule: flexible
+    minimum_odds_rule: null
+
+  - id: FLEX-SELECT
+    display_name: "FLEX-SELECT"
+    enabled: true
+    selection_rule: grade_threshold
+    eligible_grades: ["S", "A", "B+"]
+    base_stake: 2000
+    s_grade_stake: 3000
+    skip_rule: below_threshold
+    allocation_rule: "copy_from:FLEX-ALL"
+    minimum_odds_rule: null

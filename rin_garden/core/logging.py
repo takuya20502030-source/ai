@@ -41,12 +41,14 @@ class AuditLogger:
         status: str,
         source: str,
         message: str = "",
+        account: str | None = None,
     ) -> None:
         entry: dict[str, Any] = {
             "timestamp": to_iso(utcnow()),
             "operation": operation,
             "sport": sport,
             "race_id": race_id,
+            "account": account,
             "status": status,
             "source": source,
             "message": message,

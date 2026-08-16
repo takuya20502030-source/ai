@@ -5,11 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from rin_garden.core.account import AccountPolicy, AccountRegistry
+from rin_garden.core.config import PROJECT_ROOT
 from rin_garden.core.final_lock import FinalLockService
 from rin_garden.core.identity import build_race_id
 from rin_garden.core.logging import AuditLogger
 from rin_garden.core.pre_fix import PreFixService
 from rin_garden.core.race_master import RaceMaster, RaceMasterStore, RaceStatus
+from rin_garden.core.ticket import TicketService
 from rin_garden.core.timeutil import to_iso, utcnow
 from rin_garden.settlement.result_loader import ResultLoaderService
 from rin_garden.settlement.settlement import SettlementService
@@ -22,6 +25,7 @@ def data_root(tmp_path: Path) -> dict[str, Path]:
         "pre_dir": tmp_path / "data" / "pre",
         "final_dir": tmp_path / "data" / "final",
         "results_dir": tmp_path / "data" / "results",
+        "tickets_dir": tmp_path / "data" / "tickets",
         "audit_log_file": tmp_path / "logs" / "audit.log",
     }
 
@@ -37,13 +41,24 @@ def race_master_store(data_root: dict[str, Path]) -> RaceMasterStore:
 
 
 @pytest.fixture
+def account_registry() -> AccountRegistry:
+    """config/accounts.yaml の実データ(FORCED-ALL/SELECT-B+/FLEX-ALL/FLEX-SELECT)に加え、
+    既存テスト(FinalLock.account の既定値)が使う "DEFAULT" Accountも登録しておく。
+    """
+    loaded = AccountRegistry.load(PROJECT_ROOT / "config" / "accounts.yaml")
+    policies = [loaded.get(account_id) for account_id in loaded.all_ids()]
+    policies.append(AccountPolicy(id="DEFAULT", display_name="DEFAULT (test default account)", enabled=True))
+    return AccountRegistry.from_policies(policies)
+
+
+@pytest.fixture
 def pre_fix_service(data_root, race_master_store, audit_logger) -> PreFixService:
     return PreFixService(data_root["pre_dir"], race_master_store, audit_logger)
 
 
 @pytest.fixture
-def final_lock_service(data_root, race_master_store, audit_logger) -> FinalLockService:
-    return FinalLockService(data_root["final_dir"], race_master_store, audit_logger)
+def final_lock_service(data_root, race_master_store, audit_logger, account_registry) -> FinalLockService:
+    return FinalLockService(data_root["final_dir"], race_master_store, audit_logger, account_registry)
 
 
 @pytest.fixture
@@ -52,8 +67,13 @@ def result_loader_service(data_root, race_master_store, audit_logger) -> ResultL
 
 
 @pytest.fixture
-def settlement_service(data_root, race_master_store, audit_logger) -> SettlementService:
-    return SettlementService(data_root["results_dir"], race_master_store, audit_logger)
+def settlement_service(data_root, race_master_store, audit_logger, account_registry) -> SettlementService:
+    return SettlementService(data_root["results_dir"], race_master_store, audit_logger, account_registry)
+
+
+@pytest.fixture
+def ticket_service(data_root, race_master_store, audit_logger, account_registry) -> TicketService:
+    return TicketService(data_root["tickets_dir"], race_master_store, account_registry, audit_logger)
 
 
 @pytest.fixture
@@ -103,7 +123,7 @@ def make_pre_kwargs(race_id: str) -> dict:
     )
 
 
-def make_final_kwargs(race_id: str, decision: str = "BUY") -> dict:
+def make_final_kwargs(race_id: str, decision: str = "BUY", account: str = "DEFAULT") -> dict:
     return dict(
         race_id=race_id,
         timestamp=to_iso(utcnow()),
@@ -112,4 +132,18 @@ def make_final_kwargs(race_id: str, decision: str = "BUY") -> dict:
         bets=[{"type": "win", "target": "1"}],
         amounts={"1": 1000},
         decision=decision,
+        account=account,
+    )
+
+
+def make_ticket_kwargs(race_id: str, account: str = "DEFAULT", ticket_id: str = "T-001") -> dict:
+    return dict(
+        race_id=race_id,
+        account=account,
+        ticket_id=ticket_id,
+        bet_type="win",
+        selection="1",
+        stake=1000,
+        lock_odds=3.0,
+        status="LOCKED",
     )

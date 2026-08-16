@@ -30,6 +30,8 @@ from rin_garden.analysis.value import ValueAssessment
 from rin_garden.audit.coverage import daily_coverage
 from rin_garden.audit.finalize import audit_race
 from rin_garden.collectors.keirin.collector import KeirinCollector
+from rin_garden.core.account import AccountRegistry
+from rin_garden.core.config import PROJECT_ROOT
 from rin_garden.core.final_lock import FinalLock, FinalLockService
 from rin_garden.core.identity import build_race_id
 from rin_garden.core.logging import AuditLogger
@@ -63,6 +65,7 @@ def test_keirin_race_end_to_end_through_sheets(tmp_path, monkeypatch):
     results_dir = tmp_path / "data" / "results"
     audit_logger = AuditLogger(tmp_path / "logs" / "audit.log")
     race_master_store = RaceMasterStore(normalized_dir)
+    account_registry = AccountRegistry.load(PROJECT_ROOT / "config" / "accounts.yaml")
 
     monkeypatch.setenv("GOOGLE_SHEET_ID_KEIRIN", "fake-sheet-id")
     spreadsheet = FakeSpreadsheet()
@@ -122,8 +125,8 @@ def test_keirin_race_end_to_end_through_sheets(tmp_path, monkeypatch):
     assert rm.status == RaceStatus.PRE_FIXED
     assert sheets_writer.save_pre_fix(sheets_client, audit_logger, rm, pre.to_dict()) == "WRITTEN"
 
-    # === FINAL-LOCK(発走前) ===
-    final_service = FinalLockService(final_dir, race_master_store, audit_logger)
+    # === FINAL-LOCK(発走前、Account=FORCED-ALL) ===
+    final_service = FinalLockService(final_dir, race_master_store, audit_logger, account_registry)
     final = FinalLock(
         race_id=race_id,
         timestamp=to_iso(utcnow()),
@@ -132,6 +135,7 @@ def test_keirin_race_end_to_end_through_sheets(tmp_path, monkeypatch):
         bets=[{"type": "win", "target": "1"}],
         amounts={"1": 1000},
         decision=g6.decision,
+        account="FORCED-ALL",
     )
     rm = final_service.create(rm, final)
     assert rm.status == RaceStatus.FINAL_LOCKED
@@ -156,8 +160,8 @@ def test_keirin_race_end_to_end_through_sheets(tmp_path, monkeypatch):
     assert rm.status == RaceStatus.RESULT_LOCKED
     assert sheets_writer.save_result(sheets_client, audit_logger, rm, result_obj.to_dict()) == "WRITTEN"
 
-    # === Settlement ===
-    settlement_service = SettlementService(results_dir, race_master_store, audit_logger)
+    # === Settlement(Account=FORCED-ALL) ===
+    settlement_service = SettlementService(results_dir, race_master_store, audit_logger, account_registry)
     settlement = settlement_service.settle(rm, final.to_dict(), result_obj.to_dict())
     assert rm.status == RaceStatus.SETTLED
     assert settlement.stake == 1000
