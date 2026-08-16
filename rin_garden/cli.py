@@ -135,7 +135,12 @@ def cmd_sheets_check(args: argparse.Namespace) -> int:
     status = client.status()
 
     print(f"[sheets-check] dry_run={status.dry_run}")
-    print(f"  GOOGLE_APPLICATION_CREDENTIALS={status.credentials_path or '(未設定)'} exists={status.credentials_file_exists}")
+    print("  認証方式の優先順位: 1) User OAuth  2) ADC  3) Service Account  4) dry-run")
+    print(f"  [1] User OAuth: client_secret={status.oauth_client_secret_path} exists={status.oauth_client_secret_exists} "
+          f"/ token={status.oauth_token_path} exists={status.oauth_token_exists}")
+    print(f"  [2] ADC (Application Default Credentials): available={status.adc_available}")
+    print(f"  [3] Service Account: GOOGLE_APPLICATION_CREDENTIALS={status.credentials_path or '(未設定)'} exists={status.credentials_file_exists}")
+    print(f"  利用可能な認証方式(優先順): {status.available_auth_methods() or '(なし)'}")
     for sport, sheet_id in status.sheet_ids.items():
         print(f"  GOOGLE_SHEET_ID_{sport.upper()}={sheet_id or '(未設定)'}")
 
@@ -151,7 +156,7 @@ def cmd_sheets_check(args: argparse.Namespace) -> int:
         if not inspection.connected:
             print(f"  [{sport}] not connected: {inspection.message}")
             continue
-        print(f"  [{sport}] connected. tabs:")
+        print(f"  [{sport}] connected (auth_method={client.auth_method}). tabs:")
         for name, tab in inspection.tabs.items():
             print(f"    - {name}: exists={tab.exists} headers={tab.headers} rows={tab.row_count} race_ids={len(tab.race_ids)}")
     return 0

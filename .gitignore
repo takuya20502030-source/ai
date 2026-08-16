@@ -1,6 +1,9 @@
 # --- Secrets ---
 .env
 credentials*
+token.json
+# OAuth 2.0 Desktop App用クライアントシークレット・ユーザートークン。
+# 明示的に記載(credentials* / *.json でも既にマッチするが、意図を明確にするため)。
 *.json
 # 上記 *.json は誤って秘密情報JSONを含めないための保険。
 # 将来リポジトリに含めるべき設定JSONが必要になった場合は、ここに明示的な
