@@ -1,0 +1,56 @@
+# BOAT RACE 設定
+sport: boat
+display_name: "BOAT RACE"
+
+canonical_source:
+  name: "TODO: 公式データソース未確定"
+  base_url: null
+  notes: >
+    公式API・正規データソースが利用可能になり次第ここに設定する。
+    それまでは collectors/boat は DATA_INCOMPLETE を返すダミー実装とする。
+
+venues:
+  - 桐生
+  - 戸田
+  - 江戸川
+  - 平和島
+  - 多摩川
+  - 浜名湖
+  - 蒲郡
+  - 常滑
+  - 津
+  - 三国
+  - びわこ
+  - 住之江
+  - 尼崎
+  - 鳴門
+  - 丸亀
+  - 児島
+  - 宮島
+  - 徳山
+  - 下関
+  - 若松
+  - 芦屋
+  - 福岡
+  - 唐津
+  - 大村
+
+# section 17準拠
+race_fields:
+  - 枠
+  - 選手
+  - モーター
+  - ボート
+  - 展示タイム
+  - 周回展示
+  - ST展示
+  - 進入
+  - 風
+  - 波
+  - 潮
+  - コース別成績
+  - IN_COLLAPSE
+
+result_fields:
+  - 着順
+  - 払戻

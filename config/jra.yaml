@@ -1,0 +1,45 @@
+# JRA中央競馬 設定
+sport: jra
+display_name: "JRA中央競馬"
+
+# 正規データソース。公式API/正規ソースが確定するまでは TODO のままにし、
+# 推測でURLを補完しない。
+canonical_source:
+  name: "TODO: 公式データソース未確定"
+  base_url: null
+  notes: >
+    公式API・正規データソースが利用可能になり次第ここに設定する。
+    それまでは collectors/jra は DATA_INCOMPLETE を返すダミー実装とする。
+
+venues:
+  # JRA 10場（コード等は将来collector実装時に確定させる）
+  - 札幌
+  - 函館
+  - 福島
+  - 新潟
+  - 東京
+  - 中山
+  - 中京
+  - 京都
+  - 阪神
+  - 小倉
+
+# 将来的に扱うレース情報の項目（section 17準拠）
+race_fields:
+  - 出走表
+  - 枠
+  - 騎手
+  - 馬体重
+  - オッズ
+  - 調教
+  - 馬場
+  - ラップ
+  - 血統
+  - 展開
+  - 当日バイアス
+
+result_fields:
+  - 着順
+  - タイム
+  - 上がり3F
+  - 払戻

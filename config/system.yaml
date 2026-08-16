@@ -1,0 +1,84 @@
+# RIN GARDEN SYSTEM - グローバル設定
+# 競技共通の挙動を定義する。競技固有の設定は config/{sport}.yaml を参照。
+
+timezone: "Asia/Tokyo"
+
+paths:
+  data_root: "data"
+  raw_dir: "data/raw"
+  normalized_dir: "data/normalized"
+  pre_dir: "data/pre"
+  final_dir: "data/final"
+  results_dir: "data/results"
+  log_dir: "logs"
+  audit_log_file: "logs/audit.log"
+
+# レースランク（買い候補は S/A/B。C/D/Eは検証用に保存する）
+rank:
+  scale: ["S", "A", "B", "C", "D", "E"]
+  buy_candidates: ["S", "A", "B"]
+
+# CHAOS はランクとは独立した別軸（0〜10）
+chaos:
+  min: 0
+  max: 10
+
+# VALUE判断のしきい値（暫定値。バックテスト結果を見て調整すること）
+value:
+  # 期待値がこの値未満なら WAIT/SKIP 方向に倒す
+  min_expected_value_to_buy: 1.05
+  # CHAOSがこの値を超える場合は資金配分を抑制する
+  high_chaos_threshold: 7
+
+# NO POST-HOC / PRE-FIX / FINAL-LOCK のタイミング制御
+locks:
+  # PRE-FIXは発走時刻の何秒前まで作成を許可するか（0 = 発走直前まで許可、負値は不可）
+  pre_fix_cutoff_seconds_before_start: 0
+  # FINAL-LOCKの新規作成・revisionは発走時刻の何秒前まで許可するか
+  final_lock_cutoff_seconds_before_start: 0
+
+# GARDEN-6 統合分析の担当者定義（口調・担当領域は agents/*.md を正とする）
+garden6:
+  members:
+    - id: rin
+      name: "凜"
+      role: "総合責任者・最終決裁"
+      persona_file: "agents/rin.md"
+    - id: miuka
+      name: "美羽香"
+      role: "データ担当"
+      persona_file: "agents/miuka.md"
+    - id: kana
+      name: "花奈"
+      role: "現場担当"
+      persona_file: "agents/kana.md"
+    - id: erisa
+      name: "英梨紗"
+      role: "監査担当"
+      persona_file: "agents/erisa.md"
+    - id: kurone
+      name: "黒音"
+      role: "穴・シナリオ担当"
+      persona_file: "agents/kurone.md"
+    - id: luna
+      name: "瑠那"
+      role: "検証担当"
+      persona_file: "agents/luna.md"
+
+# Google Sheetsは表示・確認・集計用途。ローカルのRace Master/PRE/FINAL/Result/Settlement/
+# Audit Logが正データであり、Sheetsを唯一のデータベースにしない。
+sheets:
+  enabled: true
+  # 認証情報が無い場合は自動的に dry_run (書き込みログのみ) にフォールバックする
+  dry_run_if_missing_credentials: true
+  sheet_id_env_vars:
+    jra: "GOOGLE_SHEET_ID_JRA"
+    nar: "GOOGLE_SHEET_ID_NAR"
+    boat: "GOOGLE_SHEET_ID_BOAT"
+    keirin: "GOOGLE_SHEET_ID_KEIRIN"
+
+sports:
+  - jra
+  - nar
+  - boat
+  - keirin

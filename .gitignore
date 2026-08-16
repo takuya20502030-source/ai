@@ -1,0 +1,42 @@
+# --- Secrets ---
+.env
+credentials*
+*.json
+# 上記 *.json は誤って秘密情報JSONを含めないための保険。
+# 将来リポジトリに含めるべき設定JSONが必要になった場合は、ここに明示的な
+# 否定パターン(!path/to/file.json)を追加すること。無条件で全JSONを除外しない。
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# --- 生成データ・ログ(ローカル永続データであり正データはGitで管理しない) ---
+logs/*
+!logs/.gitkeep
+
+data/raw/*
+!data/raw/.gitkeep
+
+data/normalized/*
+!data/normalized/.gitkeep
+
+data/pre/*
+!data/pre/.gitkeep
+
+data/final/*
+!data/final/.gitkeep
+
+data/results/*
+!data/results/.gitkeep
+
+# --- OS/エディタ ---
+.DS_Store
+.idea/
+.vscode/

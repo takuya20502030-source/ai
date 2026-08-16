@@ -1,0 +1,53 @@
+# 地方競馬（NAR）設定
+sport: nar
+display_name: "地方競馬"
+
+canonical_source:
+  name: "TODO: 公式データソース未確定"
+  base_url: null
+  notes: >
+    公式API・正規データソースが利用可能になり次第ここに設定する。
+    それまでは collectors/nar は DATA_INCOMPLETE を返すダミー実装とする。
+
+# 帯広ばんえいは対象外（システム方針）
+excluded_venues:
+  - 帯広（ばんえい）
+
+venues:
+  - 門別
+  - 盛岡
+  - 水沢
+  - 浦和
+  - 船橋
+  - 大井
+  - 川崎
+  - 金沢
+  - 笠松
+  - 名古屋
+  - 園田
+  - 姫路
+  - 高知
+  - 佐賀
+
+# JRA項目に加えて地方競馬特有の項目を扱う（section 17準拠）
+race_fields:
+  - 出走表
+  - 枠
+  - 騎手
+  - 馬体重
+  - オッズ
+  - 調教
+  - 馬場
+  - ラップ
+  - 血統
+  - 展開
+  - 当日バイアス
+  - 地方特有のコース適性
+  - 場別傾向
+  - 厩舎
+  - 馬場差
+
+result_fields:
+  - 着順
+  - タイム
+  - 払戻
