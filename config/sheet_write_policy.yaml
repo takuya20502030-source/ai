@@ -1,4 +1,4 @@
-# Google Sheets 書き込み方針(ユーザー承認済み、FORMULA READ ONLY調査結果に基づく)。
+# Google Sheets 書き込み方針。
 #
 # whitelist方式: 各タブの mode と allowed_columns がこのファイルに明示された
 # タブ・列にしか書き込めない(deny-by-default)。ここに無いタブは
@@ -16,13 +16,28 @@
 #   ヘッダー名で指定する)。race_id + account の重複判定にも使う。
 #
 # allowed_columns に無い列へは(既存の値であっても数式であっても)絶対に書かない。
-# 数式列(Race Ledgerの Profit/ROI/Hit、Tickets の Return/Profit、Coverage の
-# 進捗（日本語）等)は意図的に allowed_columns から除外することで保護する
-# (blacklistではなくwhitelistで守る)。
 #
 # header_row_index は config/sheet_tab_layout.yaml を正とする(重複管理しない)。
+#
+# ============================================================================
+# ARCHIVE NOTICE (2026-08-16時点)
+# ============================================================================
+# RIN GARDEN Google Sheets正本は v3.0 へ全面移行した。以下の `keirin_v2_1_archive:`
+# セクションは、旧 RIN_GARDEN_Keirin_Virtual_Ledger_v2.1 の構造調査
+# (sheets-raw-inspect / sheets-formula-inspect の実データ)に基づく書き込み方針
+# であり、現在は ARCHIVE ONLY(参照専用)。
+#
+#   - 新規書き込み禁止(v2.1に対してAdapterを使わない)
+#   - 実行時のsport識別子は意図的に "keirin" ではなく "keirin_v2_1_archive" に
+#     している。WritePolicyRegistry.load(path, "keirin") は現在このファイルから
+#     何も取得できず、空(deny-by-default)を返す。v2.1のMappingが誤って
+#     現行の "keirin"(=v3.0)へ適用されることをコード上防いでいる。
+#   - v3.0用の書き込み方針は、v3.0タブ構成をREAD ONLYで確認してから
+#     別セクション("keirin:")として追記すること。このファイルの内容を
+#     そのまま流用しない。
+# ============================================================================
 
-keirin:
+keirin_v2_1_archive:
   tabs:
     "Race Log":
       mode: write_whitelist

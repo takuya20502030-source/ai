@@ -11,10 +11,11 @@ RIN GARDEN SYSTEM は「的中数」ではなく **長期ROI・純利益・市�
 目的とした分析基盤です。最大の特徴は、結果を知った後に予想を書き換えることを
 コード・テスト・監査ログによって強制的に禁止している点です（**NO POST-HOC**）。
 
-- **PRE-FIX**: 発走前に確定させる予想の原本（immutable）
-- **FINAL-LOCK**: 直前情報を反映した最終判断（revisionのみ許可、上書き禁止）
+- **PRE-FIX**: 発走前に確定させる予想の原本（immutable、レース単位で1件）
+- **FINAL-LOCK**: 直前情報を反映した最終判断（`race_id + account` 単位。revisionのみ許可、上書き禁止）
+- **Account**: 予測ロジック（共通PRE）と資金・選別ロジック（AccountPolicy）を分離する仕組み。`config/accounts.yaml` で管理し、1レースに複数Account（FORCED-ALL / SELECT-B+ 等）を独立して持てる
 - **GARDEN-6**: 6人の独立分析担当（凜・美羽香・花奈・英梨紗・黒音・瑠那）による多角的分析
-- **Race Master**: `race_id` を中心とした厳密なレース同一性管理
+- **Race Master**: `race_id` を中心とした厳密なレース同一性管理（レース単位で1件、Accountでは複製しない）
 
 ## ディレクトリ構成
 
@@ -155,13 +156,35 @@ SCHEDULED -> PRE_FIXED -> FINAL_LOCKED -> RESULT_LOCKED -> SETTLED -> AUDITED
 最終確定です(`rin_garden/audit/finalize.py`)。PRE/FINAL/Result/Settlementの内容は
 一切書き換えません。
 
+## Google Sheets 正本の移行状況(v3.0)
+
+RIN GARDEN Google Sheets正本は **v3.0 へ全面移行** しました。以前の台帳(競輪:
+`RIN_GARDEN_Keirin_Virtual_Ledger_v2.1`)は **ARCHIVE ONLY** です。新規書き込み・
+結果追加・精算・集計・通常参照のいずれにも使いません。
+
+v2.1構造調査に基づく設定(`config/sheet_write_policy.yaml` /
+`config/sheet_tab_layout.yaml`)は `keirin_v2_1_archive` というsport識別子の下に
+アーカイブされており、現行の `keirin`(=v3.0)としてロードしても何も取得できません
+(=v2.1のMappingが誤ってv3.0へ適用されることをコード上防いでいます)。v3.0用の
+Mapping/Adapterは、v3.0の実タブ構成をREAD ONLYで確認してから別途追加します。
+
+v3.0のSpreadsheet ID(競輪・地方競馬・BOAT RACE)は判明していますが、このセッション
+からは実Sheetへ接続できないため未検証です。JRAのSpreadsheet IDは未確認であり、
+このリポジトリ側で推測した値は一切含めていません。`python -m rin_garden sheets-check`
+でローカル環境から現在の設定値・接続状態を確認してください。
+
 ## 現状のステータス
 
-Race Master / Lock機構(PRE-FIX・FINAL-LOCK・NO POST-HOC) / Settlement / Coverage /
-Audit finalize / CLI骨格 / GARDEN-6 Interface に加え、Google Sheetsは読み取り専用調査
-(`sheets/inspector.py`)とMapping層(`sheets/mapping.py`)による安全な書き込みまで
-実装済みです(認証情報が無い環境ではdry-runで動作を確認できます)。競輪のみ、正規の
-一次情報をJSONファイルとして取り込む経路(`collectors/keirin/snapshot.py`)を実装済み
-です。JRA/NAR/BOATのライブ取得、GARDEN-6の実LLM分析、Google Sheetsの実接続検証
-(認証情報未提供のため未検証)は今後の拡張対象です。詳細は各モジュール内のコメントを
-参照してください。
+Race Master / Lock機構(PRE-FIX・FINAL-LOCK・NO POST-HOC、Account単位対応) /
+Ticket(`race_id + account + ticket_id`) / Settlement(Account単位で独立精算) /
+Coverage / Audit finalize / CLI骨格 / GARDEN-6 Interface に加え、Google Sheetsは
+User OAuth優先の認証(`sheets/client.py`)、タブ名を前提としない読み取り専用調査
+(`sheets/inspector.py`)、数式セルを判別するFORMULA読み取り専用調査
+(`sheets/formula_inspector.py`)、whitelist方式のSafe Writer(`sheets/adapter.py`、
+未知タブ・数式列・READ ONLYタブ・ヘッダー不一致・Race ID不一致・NO POST-HOCを
+それぞれ拒否)まで実装済みです(認証情報が無い環境ではdry-runで動作を確認できます)。
+**ただし実際のGoogle Sheetsへの書き込みはまだ一度も実行していません**(すべてFake
+backendでの検証のみ)。競輪のみ、正規の一次情報をJSONファイルとして取り込む経路
+(`collectors/keirin/snapshot.py`)を実装済みです。JRA/NAR/BOATのライブ取得、
+GARDEN-6の実LLM分析、v3.0台帳への実接続検証・Mapping確定は今後の対応対象です。
+詳細は各モジュール内のコメントを参照してください。

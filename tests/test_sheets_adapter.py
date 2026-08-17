@@ -1,8 +1,15 @@
 """Google Sheets Safe Writer(Adapter)の検証。
 
-`config/sheet_write_policy.yaml` と `config/sheet_tab_layout.yaml` の実ファイルを
-読み込み、Fake backend(実際のgspread/ネットワークなし)に対して書き込みを行う。
-実際のGoogle Sheetsへは一切接続・書き込みしない。
+RIN GARDEN Google Sheets正本はv3.0へ全面移行し、v2.1(RIN_GARDEN_Keirin_
+Virtual_Ledger_v2.1)はARCHIVE ONLYとなった。ここでは
+`config/sheet_write_policy.yaml` / `config/sheet_tab_layout.yaml` の
+"keirin_v2_1_archive" セクション(=旧v2.1の実タブ構成に基づく設定、ARCHIVE
+ONLY)を、Adapterの一般的な安全機構(whitelist/read-only/header照合/
+Race Identity/NO POST-HOC)を検証するための固定フィクスチャとして読み込む。
+これはv2.1への書き込みを許可するものではない(v2.1は常にARCHIVE ONLYであり、
+実行時のsport識別子が現行の"keirin"=v3.0とは異なるため、そもそも
+policy_registry.get()で見つからない)。実際のGoogle Sheetsへは一切
+接続・書き込みしない。
 
 特に以下を重点的に検証する:
 - 数式列(Profit/ROI/Hit等)へ書こうとすると必ず失敗する
@@ -10,6 +17,7 @@
 - ヘッダー位置が違う/該当列が見つからない場合は必ず失敗する
 - Race IDが違えば必ず失敗する
 - いずれの失敗もシート内容を一切変化させない(部分的に書いて失敗、が起きない)
+- v2.1のMappingが現行の"keirin"(v3.0)へ誤って適用されないこと
 """
 
 from __future__ import annotations
@@ -38,6 +46,7 @@ from tests.fakes.fake_gspread import FakeSpreadsheet
 
 WRITE_POLICY_PATH = PROJECT_ROOT / "config" / "sheet_write_policy.yaml"
 TAB_LAYOUT_PATH = PROJECT_ROOT / "config" / "sheet_tab_layout.yaml"
+ARCHIVE_SPORT_KEY = "keirin_v2_1_archive"
 
 
 def _race_master(**overrides) -> RaceMaster:
@@ -126,8 +135,8 @@ def spreadsheet() -> FakeSpreadsheet:
 
 @pytest.fixture
 def adapter(tmp_path) -> SheetWriteAdapter:
-    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, "keirin")
-    header_row_index_by_tab = load_header_row_index_map(TAB_LAYOUT_PATH, "keirin")
+    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, ARCHIVE_SPORT_KEY)
+    header_row_index_by_tab = load_header_row_index_map(TAB_LAYOUT_PATH, ARCHIVE_SPORT_KEY)
     audit_logger = AuditLogger(tmp_path / "audit.log")
     return SheetWriteAdapter(policy_registry, audit_logger, header_row_index_by_tab)
 
@@ -192,7 +201,7 @@ def test_writing_formula_column_is_always_rejected_and_does_not_touch_sheet(adap
 
 def test_writing_hit_column_on_race_ledger_is_rejected():
     """Hit/的中も数式列としてallowed_columnsから除外されていることを設定ファイルで確認する。"""
-    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, "keirin")
+    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, ARCHIVE_SPORT_KEY)
     policy = policy_registry.get("Race Ledger")
     assert "Hit / 的中" not in policy.allowed_columns
     assert "Profit / 利益" not in policy.allowed_columns
@@ -200,14 +209,14 @@ def test_writing_hit_column_on_race_ledger_is_rejected():
 
 
 def test_writing_tickets_return_profit_columns_is_rejected_by_config():
-    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, "keirin")
+    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, ARCHIVE_SPORT_KEY)
     policy = policy_registry.get("Tickets")
     assert "Return" not in policy.allowed_columns
     assert "Profit" not in policy.allowed_columns
 
 
 def test_coverage_progress_japanese_column_is_never_whitelisted():
-    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, "keirin")
+    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, ARCHIVE_SPORT_KEY)
     policy = policy_registry.get("Coverage")
     assert "進捗（日本語）" not in policy.allowed_columns
 
@@ -227,7 +236,7 @@ def test_writing_to_read_only_tab_is_always_rejected_and_does_not_touch_sheet(ad
 
 @pytest.mark.parametrize("tab", ["FORCED-ALL", "SELECT-B+", "Summary", "日別", "FLEX-ALL", "FLEX-SELECT"])
 def test_all_currently_read_only_tabs_are_configured_as_read_only(tab):
-    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, "keirin")
+    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, ARCHIVE_SPORT_KEY)
     assert policy_registry.get(tab).mode == "read_only"
 
 
@@ -235,7 +244,7 @@ def test_all_currently_read_only_tabs_are_configured_as_read_only(tab):
 
 
 def test_wrong_header_row_index_is_rejected_and_does_not_touch_sheet(spreadsheet, tmp_path):
-    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, "keirin")
+    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, ARCHIVE_SPORT_KEY)
     audit_logger = AuditLogger(tmp_path / "audit.log")
     # わざと誤ったheader_row_index(1=空行)を設定する
     wrong_layout = {"Race Log": 1}
@@ -250,7 +259,7 @@ def test_wrong_header_row_index_is_rejected_and_does_not_touch_sheet(spreadsheet
 
 
 def test_missing_header_row_index_config_is_rejected(spreadsheet, tmp_path):
-    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, "keirin")
+    policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, ARCHIVE_SPORT_KEY)
     audit_logger = AuditLogger(tmp_path / "audit.log")
     adapter = SheetWriteAdapter(policy_registry, audit_logger, header_row_index_by_tab={})  # 未設定
     rm = _race_master()
@@ -315,8 +324,8 @@ def test_write_result_fields_blocked_after_settled(adapter, spreadsheet):
 
 def test_append_audit_row_always_appends_never_updates(adapter, spreadsheet):
     fields = {"Time JST / 時刻": "2026-08-16T10:00:00+00:00", "Change / 変更種別": "policy_update"}
-    adapter.append_audit_row(spreadsheet, "keirin", "変更履歴", fields)
-    adapter.append_audit_row(spreadsheet, "keirin", "変更履歴", fields)  # 同一内容でも別行として追加される
+    adapter.append_audit_row(spreadsheet, ARCHIVE_SPORT_KEY, "変更履歴", fields)
+    adapter.append_audit_row(spreadsheet, ARCHIVE_SPORT_KEY, "変更履歴", fields)  # 同一内容でも別行として追加される
 
     ws = spreadsheet.worksheet("変更履歴")
     data_rows = ws.get_all_values()[4:]
@@ -346,3 +355,32 @@ def test_multiple_rejections_leave_sheet_completely_unchanged(adapter, spreadshe
             adapter.write_prediction_fields(spreadsheet, rm, tab, fields)
 
     assert _snapshot(spreadsheet) == before
+
+
+# --- 10. v3.0移行: v2.1のMappingが現行の"keirin"(v3.0)へ流用されないことの証明 ---
+
+
+def test_v2_1_write_policy_is_not_loaded_under_the_live_keirin_sport_key():
+    """`sheet_write_policy.yaml`の"keirin_v2_1_archive"は、現行のsport識別子
+    "keirin"(=v3.0)としてロードしても一切見えないことを直接確認する。
+    v2.1構造がv3.0へ誤って適用される事故を、コード上(設定ファイルのキー分離)で
+    防いでいることの証明。
+    """
+    live_policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, "keirin")
+
+    for tab in ("Race Ledger", "Race Log", "Tickets", "Coverage", "FORCED-ALL", "変更履歴"):
+        with pytest.raises(UnknownTabError):
+            live_policy_registry.get(tab)
+
+
+def test_v2_1_header_layout_is_not_loaded_under_the_live_keirin_sport_key():
+    live_header_map = load_header_row_index_map(TAB_LAYOUT_PATH, "keirin")
+    assert live_header_map == {}
+
+
+def test_v2_1_archive_fixture_still_loads_under_its_own_archive_key():
+    """一方でARCHIVE_SPORT_KEYとしては引き続き読み込めること(参照用フィクスチャとして
+    保持されているだけであり、削除されたわけではないことの確認)。
+    """
+    archived_policy_registry = WritePolicyRegistry.load(WRITE_POLICY_PATH, ARCHIVE_SPORT_KEY)
+    assert archived_policy_registry.get("Race Ledger").mode == "write_whitelist"

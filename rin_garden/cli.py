@@ -33,19 +33,11 @@ from rin_garden.core.race_master import RaceMasterStore
 from rin_garden.settlement.aggregation import aggregate_day
 from rin_garden.sheets.client import SheetsClient
 from rin_garden.sheets.formula_inspector import inspect_spreadsheet_formulas
-from rin_garden.sheets.inspector import inspect_spreadsheet, inspect_spreadsheet_raw
+from rin_garden.sheets.inspector import inspect_spreadsheet, inspect_spreadsheet_raw, list_all_tab_titles
 
-# FORMULA READ ONLY調査の既定対象タブ(ユーザー指定)。
-DEFAULT_FORMULA_INSPECT_TABS = [
-    "Race Ledger",
-    "FORCED-ALL",
-    "SELECT-B+",
-    "FLEX-ALL",
-    "FLEX-SELECT",
-    "Tickets",
-    "Coverage",
-]
-EXTRA_FORMULA_INSPECT_TABS = ["Race Log", "Summary", "日別", "変更履歴"]
+# sheets-raw-inspect/sheets-formula-inspectは特定のGoogle Sheetsバージョン・
+# タブ構成を前提にしない(過去の調査結果を新しい台帳へ流用しない)。タブ一覧は
+# 常に実際のスプレッドシートから動的に取得する。
 
 
 def _resolve_date(value: str) -> str:
@@ -179,12 +171,35 @@ def cmd_sheets_check(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_sheets_raw_inspect(args: argparse.Namespace) -> int:
-    """既存Google Sheetsのタブ構成を、タブ名を一切前提とせず読み取り専用で調査する。
+def _format_raw_report(sport: str, auth_method: str | None, result: dict[str, Any]) -> str:
+    """raw-inspect結果を、コンソール表示とファイル出力の両方で同一内容になるよう整形する。"""
+    lines: list[str] = []
+    lines.append(
+        f"[sheets-raw-inspect] sport={sport} auth_method={auth_method} "
+        f"spreadsheet_title={result['spreadsheet_title']!r}"
+    )
+    tabs = result["tabs"]
+    lines.append(f"  tab count: {len(tabs)}")
+    lines.append(f"  tab titles (in sheet order): {list(tabs.keys())}")
+    for title, tab in tabs.items():
+        lines.append("")
+        lines.append(f"  --- tab: {title!r} ---")
+        if tab is None:
+            lines.append("    (could not be read)")
+            continue
+        lines.append(f"    header_row: {tab.header_row}")
+        lines.append(f"    data_row_count: {tab.data_row_count} / sheet_col_count: {tab.sheet_col_count}")
+        for i, row in enumerate(tab.sample_rows, start=1):
+            lines.append(f"    sample_row[{i}]: {row}")
+    return "\n".join(lines)
 
-    こちらの正規スキーマ(RaceMaster/PRE/FINAL/...)のタブ名とは無関係に、
-    実際に存在する全タブのタイトル・ヘッダー行・使用範囲・先頭数行のみを表示する。
-    書き込みは一切行わない(add_worksheet/update等は呼ばない)。
+
+def cmd_sheets_raw_inspect(args: argparse.Namespace) -> int:
+    """既存Google Sheetsのタブ構成を、タブ名やバージョンを一切前提とせず読み取り専用で調査する。
+
+    こちらの正規スキーマ(RaceMaster/PRE/FINAL/...)や過去に調査した別バージョンの
+    タブ構成とは無関係に、実際に存在する全タブのタイトル・ヘッダー行・使用範囲・
+    先頭数行のみを表示する。書き込みは一切行わない(add_worksheet/update等は呼ばない)。
     """
     client = SheetsClient()
     if client.dry_run:
@@ -201,20 +216,15 @@ def cmd_sheets_raw_inspect(args: argparse.Namespace) -> int:
         print(f"[sheets-raw-inspect] not connected: {result['message']}")
         return 1
 
-    print(f"[sheets-raw-inspect] sport={args.sport} auth_method={client.auth_method} "
-          f"spreadsheet_title={result['spreadsheet_title']!r}")
-    tabs = result["tabs"]
-    print(f"  tab count: {len(tabs)}")
-    print(f"  tab titles (in sheet order): {list(tabs.keys())}")
-    for title, tab in tabs.items():
-        print(f"\n  --- tab: {title!r} ---")
-        if tab is None:
-            print("    (could not be read)")
-            continue
-        print(f"    header_row: {tab.header_row}")
-        print(f"    data_row_count: {tab.data_row_count} / sheet_col_count: {tab.sheet_col_count}")
-        for i, row in enumerate(tab.sample_rows, start=1):
-            print(f"    sample_row[{i}]: {row}")
+    report = _format_raw_report(args.sport, client.auth_method, result)
+    print(report)
+
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(report + "\n", encoding="utf-8")
+        print(f"\n[sheets-raw-inspect] report also written to: {output_path} (UTF-8)")
+
     return 0
 
 
@@ -268,6 +278,19 @@ def _format_formula_report(sport: str, auth_method: str | None, result: dict[str
     return "\n".join(lines)
 
 
+def _discover_tab_titles(client: SheetsClient, sport: str) -> list[str] | None:
+    """実際のスプレッドシートからタブ名一覧を読み取り専用で取得する。
+    接続できなければNoneを返す(処理は停止しない)。
+    """
+    sheet_id = client.sheet_id_for(sport)
+    if not sheet_id:
+        return None
+    spreadsheet = client.open(sheet_id)
+    if spreadsheet is None:
+        return None
+    return list_all_tab_titles(spreadsheet)
+
+
 def cmd_sheets_formula_inspect(args: argparse.Namespace) -> int:
     """既存Google Sheetsの対象タブをFORMULA表示で読み取り専用調査する。
 
@@ -275,12 +298,10 @@ def cmd_sheets_formula_inspect(args: argparse.Namespace) -> int:
     (=一次入力候補)かを区別する。value_render_option='FORMULA'によるGET
     (Sheets API読み取り専用)のみを使用し、update/append/clear/add_worksheet等の
     書き込み系メソッドは一切呼ばない。
-    """
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:  # noqa: BLE001 - reconfigureが使えない環境でも処理は継続する
-        pass
 
+    --tabs省略時は、過去に調査した別バージョン・別台帳のタブ名を前提にせず、
+    実際にスプレッドシートへ存在する全タブを動的に検出して調査する。
+    """
     client = SheetsClient()
     if client.dry_run:
         print("[sheets-formula-inspect] dry-run mode: no usable credentials configured. Nothing to inspect.")
@@ -291,11 +312,13 @@ def cmd_sheets_formula_inspect(args: argparse.Namespace) -> int:
         print(f"[sheets-formula-inspect] GOOGLE_SHEET_ID_{args.sport.upper()} is not set.")
         return 0
 
-    tabs = list(DEFAULT_FORMULA_INSPECT_TABS)
-    if args.include_extra:
-        tabs += EXTRA_FORMULA_INSPECT_TABS
     if args.tabs:
         tabs = args.tabs
+    else:
+        tabs = _discover_tab_titles(client, args.sport)
+        if tabs is None:
+            print("[sheets-formula-inspect] could not open the spreadsheet to discover tabs.")
+            return 1
 
     header_row_index_by_tab = _load_header_row_index_by_tab(args.sport)
 
@@ -357,10 +380,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_sheets_raw_inspect = sub.add_parser(
         "sheets-raw-inspect",
-        help="既存Google Sheetsの実際のタブ構成をタブ名を前提とせず読み取り専用で調査する(書き込みなし)",
+        help="既存Google Sheetsの実際のタブ構成をタブ名・バージョンを前提とせず読み取り専用で調査する(書き込みなし)",
     )
     p_sheets_raw_inspect.add_argument("--sport", required=True)
     p_sheets_raw_inspect.add_argument("--sample-rows", type=int, default=3, help="各タブから表示するサンプル行数")
+    p_sheets_raw_inspect.add_argument(
+        "--output", default=None, help="レポートをUTF-8テキストファイルとしても書き出すパス(Windows等の文字化け対策)"
+    )
     p_sheets_raw_inspect.set_defaults(func=cmd_sheets_raw_inspect)
 
     p_sheets_formula_inspect = sub.add_parser(
@@ -369,10 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_sheets_formula_inspect.add_argument("--sport", required=True)
     p_sheets_formula_inspect.add_argument(
-        "--tabs", nargs="+", default=None, help="調査対象タブ名を明示指定する(省略時は既定7タブ)"
-    )
-    p_sheets_formula_inspect.add_argument(
-        "--include-extra", action="store_true", help="Race Log/Summary/日別/変更履歴も追加で調査する"
+        "--tabs", nargs="+", default=None, help="調査対象タブ名を明示指定する(省略時は実在する全タブを自動検出)"
     )
     p_sheets_formula_inspect.add_argument("--sample-formulas", type=int, default=5, help="タブごとに表示する代表的な数式の件数")
     p_sheets_formula_inspect.add_argument(
@@ -384,6 +407,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows等、コンソールの既定コードページがUTF-8でない環境でも日本語出力が
+    # 文字化けしないようにする(reconfigureが使えない/失敗しても処理は継続する)。
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        pass
+
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)
